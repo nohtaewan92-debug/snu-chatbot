@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>서울대학교 민원 안내 챗봇</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif;
+      background: linear-gradient(160deg, #EBF0FA 0%, #F5F7FC 60%, #E8EEF8 100%);
+      min-height: 100vh;
+    }
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+      40% { transform: translateY(-6px); opacity: 1; }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .chat-area::-webkit-scrollbar { width: 4px; }
+    .chat-area::-webkit-scrollbar-track { background: transparent; }
+    .chat-area::-webkit-scrollbar-thumb { background: #C5D5F0; border-radius: 4px; }
+    .example-btn:hover { background: #1A3A6B !important; color: white !important; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+const DEPARTMENTS = `
+서울대학교 주요 담당 부서 목록:
+1. 교무처 - 수업, 성적, 학사일정, 강의계획서, 교과목 개설, 졸업 요건
+2. 학생처 - 장학금, 생활관(기숙사), 학생 복지, 상담, 학생 활동, 동아리
+3. 입학본부 - 입학 전형, 입시 결과, 편입학, 외국인 전형
+4. 대학원 입학 - 대학원 입학, 석박사 전형, 외국인 대학원 입학
+5. 국제협력본부 - 교환학생, 해외 대학 협정, 외국인 유학생 지원, 글로벌 프로그램
+6. 연구처 - 연구비, 연구 과제, 산학협력, 특허, 기술이전
+7. 총무처 - 시설 이용, 공간 대여, 건물 관리, 청소·보안, 주차
+8. 재무처 - 등록금 납부, 환불, 세금계산서, 예산
+9. 정보화본부 - 학교 인터넷·네트워크, mySNU 포털, 학교 이메일, IT 장비
+10. 도서관 - 도서 대출·반납, 열람실 이용, 자료 구입 신청, 연구 지원
+11. 보건진료소 - 진료, 건강검진, 의무 기록, 예방접종
+12. 언어교육원 - 어학 강좌, 외국어 시험, 언어 교육 프로그램
+13. 평생교육원 - 시민 강좌, 직무 교육, 최고위 과정
+14. 스포츠부 - 체육 시설 예약, 스포츠 프로그램, 대학 체육대회
+15. 법무팀 - 법률 자문, 계약서, 소송·분쟁
+16. 인권센터 - 성희롱·성폭력 신고, 갑질·괴롭힘, 인권 침해 상담
+17. 환경안전원 - 실험실 안전, 화학물질 관리, 폐기물 처리, 재난 대응
+18. 발전기금재단 - 기부, 후원, 장학기금 조성
+`;
+
+const SYSTEM_PROMPT = `당신은 서울대학교의 민원 담당 AI 어시스턴트입니다.
+외부인 또는 구성원이 민원 내용을 입력하면, 해당 내용을 분석하여 적절한 담당 부서를 추천하고 안내해야 합니다.
+${DEPARTMENTS}
+응답 형식:
+1. 민원 내용을 간략히 이해했음을 밝혀주세요.
+2. 가장 적합한 담당 부서 1~2곳을 추천하고, 왜 그 부서인지 이유를 설명하세요.
+3. 부서에 연락하거나 방문할 때 필요한 준비사항이나 팁을 간략히 안내해주세요.
+4. 추가로 필요한 정보가 있으면 정중하게 질문하세요.
+항상 친절하고 공손한 어투로 답변하세요. 한국어로 응답하세요.`;
+
+const EXAMPLE_QUESTIONS = [
+  "기숙사 신청은 어디서 하나요?",
+  "논문 연구비 지원 받고 싶어요",
+  "강의실 불법 촬영 피해를 신고하고 싶어요",
+  "외국인인데 교환학생 프로그램 신청하고 싶어요",
+];
+
+// ── API Key Setup Screen ──────────────────────────────────────────
+function ApiKeySetup({ onSave }) {
+  const [key, setKey] = useState('');
+  const [show, setShow] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSave = () => {
+    if (!key.startsWith('sk-ant-')) {
+      setError('올바른 Anthropic API 키 형식이 아닙니다. (sk-ant-... 형태여야 합니다)');
+      return;
+    }
+    onSave(key.trim());
+  };
+
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', alignItems: 'center',
+      justifyContent: 'center', padding: 24,
+      background: 'linear-gradient(160deg, #EBF0FA 0%, #F5F7FC 60%, #E8EEF8 100%)'
+    }}>
+      <div style={{
+        width: '100%', maxWidth: 480, background: 'white',
+        borderRadius: 20, overflow: 'hidden',
+        boxShadow: '0 8px 40px rgba(26,58,107,0.15)'
+      }}>
+        {/* Header */}
+        <div style={{
+          background: 'linear-gradient(135deg, #1A3A6B 0%, #2B5AB7 100%)',
+          padding: '28px 32px', color: 'white', textAlign: 'center'
+        }}>
+          <div style={{ fontSize: 44, marginBottom: 10 }}>🏛️</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>서울대학교 민원 안내</div>
+          <div style={{ fontSize: 13, opacity: 0.75, marginTop: 4 }}>Seoul National University</div>
+        </div>
+        {/* Body */}
+        <div style={{ padding: '28px 32px' }}>
+          <div style={{
+            background: '#F0F4FD', borderRadius: 12, padding: '14px 16px',
+            fontSize: 13, color: '#3A5A8A', lineHeight: 1.7, marginBottom: 24
+          }}>
+            <strong>🔑 Anthropic API 키가 필요합니다</strong><br/>
+            이 챗봇은 Claude AI를 사용합니다. 아래에 API 키를 입력하면<br/>
+            브라우저에만 저장되며 외부로 전송되지 않습니다.
+          </div>
+
+          <label style={{ fontSize: 13, fontWeight: 600, color: '#1A3A6B', display: 'block', marginBottom: 8 }}>
+            Anthropic API Key
+          </label>
+          <div style={{ position: 'relative', marginBottom: 8 }}>
+            <input
+              type={show ? 'text' : 'password'}
+              value={key}
+              onChange={e => { setKey(e.target.value); setError(''); }}
+              placeholder="sk-ant-api03-..."
+              onKeyDown={e => e.key === 'Enter' && handleSave()}
+              style={{
+                width: '100%', border: '1.5px solid #C5D5F0', borderRadius: 10,
+                padding: '11px 44px 11px 14px', fontSize: 14, outline: 'none',
+                fontFamily: 'monospace', color: '#1C2A3A', background: '#FAFBFF'
+              }}
+            />
+            <button
+              onClick={() => setShow(!show)}
+              style={{
+                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#7A9BB8'
+              }}
+            >{show ? '🙈' : '👁️'}</button>
+          </div>
+          {error && <div style={{ color: '#E04E4E', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+
+          <div style={{ fontSize: 12, color: '#8A9BB8', marginBottom: 20 }}>
+            API 키는 <a href="https://console.anthropic.com" target="_blank" rel="noreferrer"
+            style={{ color: '#2B5AB7' }}>console.anthropic.com</a>에서 발급받을 수 있습니다.
+          </div>
+
+          <button
+            onClick={handleSave}
+            disabled={!key.trim()}
+            style={{
+              width: '100%', padding: '13px 0', borderRadius: 12, border: 'none',
+              background: key.trim() ? 'linear-gradient(135deg, #1A3A6B, #4E7FE0)' : '#C5D5F0',
+              color: 'white', fontSize: 15, fontWeight: 700,
+              cursor: key.trim() ? 'pointer' : 'not-allowed',
+              fontFamily: 'inherit', boxShadow: key.trim() ? '0 4px 16px rgba(78,127,224,0.35)' : 'none',
+              transition: 'all 0.2s'
+            }}
+          >
+            챗봇 시작하기 →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Typing Indicator ──────────────────────────────────────────────
+function TypingIndicator() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '12px 16px' }}>
+      {[0,1,2].map(i => (
+        <div key={i} style={{
+          width: 8, height: 8, borderRadius: '50%', background: '#4E7FE0',
+          animation: 'bounce 1.2s infinite', animationDelay: `${i * 0.2}s`
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// ── Message Bubble ────────────────────────────────────────────────
+function Message({ msg }) {
+  const isUser = msg.role === 'user';
+  return (
+    <div style={{
+      display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start',
+      marginBottom: 16, animation: 'fadeIn 0.3s ease'
+    }}>
+      {!isUser && (
+        <div style={{
+          width: 36, height: 36, borderRadius: '50%',
+          background: 'linear-gradient(135deg, #1A3A6B, #4E7FE0)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 16, marginRight: 10, flexShrink: 0,
+          boxShadow: '0 2px 8px rgba(78,127,224,0.3)'
+        }}>🏛️</div>
+      )}
+      <div style={{
+        maxWidth: '72%',
+        background: isUser ? 'linear-gradient(135deg, #1A3A6B, #2B5AB7)' : '#FFFFFF',
+        color: isUser ? '#FFFFFF' : '#1C2A3A',
+        padding: '12px 16px',
+        borderRadius: isUser ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+        fontSize: 14, lineHeight: 1.7,
+        boxShadow: isUser ? '0 2px 12px rgba(26,58,107,0.25)' : '0 2px 12px rgba(0,0,0,0.08)',
+        whiteSpace: 'pre-wrap', wordBreak: 'keep-all'
+      }}>
+        {msg.content}
+      </div>
+      {isUser && (
+        <div style={{
+          width: 36, height: 36, borderRadius: '50%', background: '#E8EEF8',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 16, marginLeft: 10, flexShrink: 0
+        }}>👤</div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Chat App ─────────────────────────────────────────────────
+function ChatApp({ apiKey, onLogout }) {
+  const [messages, setMessages] = useState([{
+    role: 'assistant',
+    content: '안녕하세요! 서울대학교 민원 안내 챗봇입니다 🏛️\n\n궁금하신 민원 내용을 입력해 주시면, 담당 부서를 찾아드리겠습니다.\n예시: 등록금 환불, 기숙사 신청, 연구비 문의 등'
+  }]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
+
+  const sendMessage = async (text) => {
+    const userText = text || input.trim();
+    if (!userText || loading) return;
+
+    const userMsg = { role: 'user', content: userText };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    setInput('');
+    setLoading(true);
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          system: SYSTEM_PROMPT,
+          messages: newMessages.map(m => ({ role: m.role, content: m.content }))
+        })
+      });
+      const data = await response.json();
+      const reply = data.content?.map(b => b.text || '').join('\n') || '응답을 가져오지 못했습니다.';
+      setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+    } catch (err) {
+      setMessages(prev => [...prev, { role: 'assistant', content: '오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' }]);
+    } finally {
+      setLoading(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', padding: '24px 16px'
+    }}>
+      {/* Header */}
+      <div style={{
+        width: '100%', maxWidth: 680,
+        background: 'linear-gradient(135deg, #1A3A6B 0%, #2B5AB7 100%)',
+        borderRadius: '20px 20px 0 0', padding: '24px 28px 20px',
+        color: 'white', boxShadow: '0 4px 24px rgba(26,58,107,0.2)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ fontSize: 36 }}>🏛️</div>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.3px' }}>서울대학교 민원 안내</div>
+            <div style={{ fontSize: 12, opacity: 0.75, marginTop: 3 }}>Seoul National University • 담당 부서 자동 추천</div>
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6,
+            background: 'rgba(255,255,255,0.15)', borderRadius: 20, padding: '5px 12px', fontSize: 12 }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#5EE49A', animation: 'bounce 2s infinite' }} />
+            운영 중
+          </div>
+          <button onClick={onLogout} title="API 키 변경" style={{
+            background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8,
+            color: 'white', fontSize: 12, padding: '5px 10px', cursor: 'pointer', marginLeft: 4
+          }}>🔑 변경</button>
+        </div>
+      </div>
+
+      {/* Chat area */}
+      <div className="chat-area" style={{
+        width: '100%', maxWidth: 680, background: '#F8FAFF',
+        flex: 1, minHeight: 420, maxHeight: 480,
+        overflowY: 'auto', padding: '20px 20px 8px',
+        boxShadow: '0 0 0 1px rgba(78,127,224,0.1)'
+      }}>
+        {messages.map((msg, i) => <Message key={i} msg={msg} />)}
+        {loading && (
+          <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 16 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: '50%',
+              background: 'linear-gradient(135deg, #1A3A6B, #4E7FE0)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 16, marginRight: 10
+            }}>🏛️</div>
+            <div style={{ background: '#FFFFFF', borderRadius: '18px 18px 18px 4px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+              <TypingIndicator />
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Example buttons */}
+      <div style={{
+        width: '100%', maxWidth: 680, background: '#F0F4FD',
+        padding: '10px 16px', display: 'flex', gap: 8, overflowX: 'auto',
+        boxShadow: '0 0 0 1px rgba(78,127,224,0.1)'
+      }}>
+        {EXAMPLE_QUESTIONS.map((q, i) => (
+          <button key={i} className="example-btn" onClick={() => sendMessage(q)} disabled={loading}
+            style={{
+              flexShrink: 0, background: 'white', border: '1.5px solid #C5D5F0',
+              borderRadius: 20, padding: '6px 14px', fontSize: 12, color: '#1A3A6B',
+              cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.2s', fontFamily: 'inherit'
+            }}>{q}</button>
+        ))}
+      </div>
+
+      {/* Input area */}
+      <div style={{
+        width: '100%', maxWidth: 680, background: 'white',
+        borderRadius: '0 0 20px 20px', padding: '14px 16px',
+        display: 'flex', gap: 10, alignItems: 'flex-end',
+        boxShadow: '0 8px 24px rgba(26,58,107,0.12)'
+      }}>
+        <textarea
+          ref={inputRef} value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+          placeholder="민원 내용을 입력하세요... (Enter 전송, Shift+Enter 줄바꿈)"
+          disabled={loading} rows={2}
+          style={{
+            flex: 1, border: '1.5px solid #C5D5F0', borderRadius: 12,
+            padding: '10px 14px', fontSize: 14, fontFamily: 'inherit',
+            resize: 'none', outline: 'none', color: '#1C2A3A',
+            background: '#FAFBFF', lineHeight: 1.6, transition: 'border-color 0.2s'
+          }}
+          onFocus={e => e.target.style.borderColor = '#4E7FE0'}
+          onBlur={e => e.target.style.borderColor = '#C5D5F0'}
+        />
+        <button onClick={() => sendMessage()} disabled={loading || !input.trim()}
+          style={{
+            width: 44, height: 44, borderRadius: '50%', border: 'none',
+            background: (loading || !input.trim()) ? '#C5D5F0' : 'linear-gradient(135deg, #1A3A6B, #4E7FE0)',
+            color: 'white', fontSize: 18, flexShrink: 0,
+            cursor: (loading || !input.trim()) ? 'not-allowed' : 'pointer',
+            boxShadow: (loading || !input.trim()) ? 'none' : '0 2px 10px rgba(78,127,224,0.4)',
+            transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}>➤</button>
+      </div>
+
+      <div style={{ marginTop: 12, fontSize: 11, color: '#8A9BB8', textAlign: 'center' }}>
+        본 챗봇은 AI 기반 안내 서비스로, 공식 답변을 대체하지 않습니다.
+      </div>
+    </div>
+  );
+}
+
+// ── Root ──────────────────────────────────────────────────────────
+function App() {
+  const [apiKey, setApiKey] = useState(() => sessionStorage.getItem('snu_api_key') || '');
+
+  const handleSave = (key) => {
+    sessionStorage.setItem('snu_api_key', key);
+    setApiKey(key);
+  };
+  const handleLogout = () => {
+    sessionStorage.removeItem('snu_api_key');
+    setApiKey('');
+  };
+
+  return apiKey ? <ChatApp apiKey={apiKey} onLogout={handleLogout} /> : <ApiKeySetup onSave={handleSave} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
